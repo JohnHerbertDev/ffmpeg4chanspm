@@ -307,18 +307,27 @@ assemble_framework() {
     all_archives+=("${f}")
   done < <(find "${prefix}/lib" -name "*.a" -print0)
 
+  if [ ${#all_archives[@]} -eq 0 ]; then
+    fail "No static archives found in ${prefix}/lib"
+  fi
+
   # Merge all static archives into one.
   # Apple's libtool does not support -warnings_as_errors; that is a GNU libtool flag.
-  # We suppress the harmless "duplicate member name" warnings but capture libtool's
-  # actual exit code to detect failure.
+  # Capture the exit code of libtool directly, while filtering out harmless
+  # "duplicate member name" warnings from the output.
   set +e
-  libtool -static -o "${fw_path}/${fw_name}" "${all_archives[@]}" 2>&1 | grep -v "duplicate member name"
+  libtool_output=$(libtool -static -o "${fw_path}/${fw_name}" "${all_archives[@]}" 2>&1)
   libtool_exit=$?
   set -e
 
   if [ $libtool_exit -ne 0 ]; then
-    fail "libtool failed to produce ${fw_path}/${fw_name}"
+    # Print the full libtool output (including warnings) to aid debugging
+    echo "$libtool_output" >&2
+    fail "libtool failed with exit code ${libtool_exit}"
   fi
+
+  # Suppress the harmless warnings (but keep any other output for logging)
+  echo "$libtool_output" | grep -v "duplicate member name" || true
 
   # Verify the output binary was actually created
   [[ -f "${fw_path}/${fw_name}" ]] || fail "libtool did not create ${fw_path}/${fw_name}"
