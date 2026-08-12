@@ -223,6 +223,7 @@ build_slice() {
     cd "${SRC_DIR}"
     ./configure \
       --prefix="${out_dir}" \
+      --enable-cross-compile \
       --target-os=darwin \
       --arch="${arch}" \
       --cc="${cc}" \
