@@ -142,27 +142,38 @@ clone_latest() {
 verify_flags() {
   log "Verifying codec flags against this FFmpeg checkout..."
 
-  # FFmpeg's configure uses relative paths internally and MUST be invoked
-  # from within its own source directory — calling it from elsewhere causes
-  # --list-decoders / --list-demuxers etc. to return nothing, making every
-  # flag appear invalid. All configure calls are wrapped in (cd "${SRC_DIR}").
+  # Strategy: grep FFmpeg configure source directly — no execution needed.
+  # Running ./configure --list-decoders requires a detected C compiler;
+  # if that check fails configure exits early with no output, making every
+  # flag appear invalid.
+  #
+  # FFmpeg configure contains a canonical entry for every valid component:
+  #   vp8_decoder_deps, mp4_muxer_select, matroska_demuxer_deps, etc.
+  # Bare flags (--enable-videotoolbox) appear as: enable_videotoolbox
+  # If upstream renames/removes a component these entries disappear and
+  # we fail loudly here before wasting time on a 60-min compile.
+
+  local configure_file="${SRC_DIR}/configure"
+  [[ -f "${configure_file}" ]] || fail "configure not found at ${configure_file}"
 
   local missing=()
 
   for flag in "${ENABLE_FLAGS[@]}"; do
     local stripped="${flag#--enable-}"
-    local feature="${stripped%%=*}"   # e.g. demuxer, decoder, encoder
-    local value="${stripped#*=}"      # e.g. matroska, vp8
+    local feature="${stripped%%=*}"   # e.g. demuxer, decoder, encoder, protocol
+    local value="${stripped#*=}"      # e.g. matroska, vp8, file
 
     if [[ "${value}" == "${feature}" ]]; then
-      # Bare flag e.g. --enable-videotoolbox, --enable-audiotoolbox
-      if ! (cd "${SRC_DIR}" && ./configure --help 2>&1) | grep -qF -- "--enable-${feature}"; then
-        missing+=("--enable-${feature}  (not found in configure --help)")
+      # Bare flag e.g. --enable-videotoolbox
+      # Appears in configure as option declaration: enable_videotoolbox
+      if ! grep -q "enable_${feature}" "${configure_file}"; then
+        missing+=("--enable-${feature}  (no 'enable_${feature}' found in configure)")
       fi
     else
       # Component flag e.g. --enable-decoder=vp8
-      if ! (cd "${SRC_DIR}" && ./configure "--list-${feature}s" 2>/dev/null) | grep -qx "${value}"; then
-        missing+=("--enable-${feature}=${value}  (${value} not in --list-${feature}s)")
+      # Every valid component has at least one entry: vp8_decoder_* in configure
+      if ! grep -q "${value}_${feature}" "${configure_file}"; then
+        missing+=("--enable-${feature}=${value}  (no '${value}_${feature}' entry in configure)")
       fi
     fi
   done
