@@ -58,27 +58,26 @@ IOS_MIN_VERSION="13.0"
 # Input side — demux/decode the formats 4chan serves that iOS cannot play
 # ---------------------------------------------------------------------------
 INPUT_FLAGS=(
-  --enable-demuxer=matroska     # WebM (.webm) container — VP8/VP9 video
-  --enable-demuxer=ogg          # OGG (.ogg) container — Vorbis audio
+  --enable-demuxer=matroska     # WebM + MKV container (handles VP8/VP9 framing directly)
+  --enable-demuxer=ogg          # OGG container (handles Vorbis/Opus framing directly)
 
   --enable-decoder=vp8          # WebM video (older boards)
   --enable-decoder=vp9          # WebM video (newer boards, higher quality)
-  --enable-decoder=vorbis       # WebM/OGG audio (older)
+  --enable-decoder=vorbis       # WebM + OGG audio (older)
   --enable-decoder=opus         # WebM audio (newer)
-
-  --enable-parser=vp8           # frame boundary / keyframe detection
-  --enable-parser=vp9
-  --enable-parser=vorbis
-  --enable-parser=opus
+  # No separate parsers for vp8/vp9/vorbis/opus — FFmpeg does not have them.
+  # Matroska and OGG demuxers provide frame boundaries directly to decoders.
 )
 
 # ---------------------------------------------------------------------------
 # Output side — encode/mux to formats iOS plays natively
 # ---------------------------------------------------------------------------
 OUTPUT_FLAGS=(
-  --enable-muxer=mp4            # output container for video (WebM → MP4)
-  --enable-muxer=ipod           # iOS-compatible MP4 variant (correct atom flags)
-  --enable-muxer=m4a            # output container for audio-only (OGG → M4A)
+  --enable-muxer=mp4            # output container for video (WebM -> MP4)
+  --enable-muxer=ipod           # iOS-compatible MP4 variant (correct moov atom flags)
+  --enable-muxer=mov            # output container for audio-only (OGG -> M4A)
+                                # FFmpeg has no m4a muxer; M4A is a MOV container.
+                                # Use mov muxer + .m4a extension in your app code.
 
   --enable-encoder=h264_videotoolbox  # Apple hardware H.264 (VideoToolbox)
   --enable-encoder=aac_at             # Apple hardware AAC  (AudioToolbox)
@@ -165,9 +164,10 @@ verify_flags() {
 
     if [[ "${value}" == "${feature}" ]]; then
       # Bare flag e.g. --enable-videotoolbox
-      # Appears in configure as option declaration: enable_videotoolbox
-      if ! grep -q "enable_${feature}" "${configure_file}"; then
-        missing+=("--enable-${feature}  (no 'enable_${feature}' found in configure)")
+      # In FFmpeg configure these appear as just the feature name (e.g. "videotoolbox")
+      # in check_lib / enabled calls, not as "enable_videotoolbox".
+      if ! grep -q "${feature}" "${configure_file}"; then
+        missing+=("--enable-${feature}  (no '${feature}' reference found in configure)")
       fi
     else
       # Component flag e.g. --enable-decoder=vp8
