@@ -142,6 +142,11 @@ clone_latest() {
 verify_flags() {
   log "Verifying codec flags against this FFmpeg checkout..."
 
+  # FFmpeg's configure uses relative paths internally and MUST be invoked
+  # from within its own source directory — calling it from elsewhere causes
+  # --list-decoders / --list-demuxers etc. to return nothing, making every
+  # flag appear invalid. All configure calls are wrapped in (cd "${SRC_DIR}").
+
   local missing=()
 
   for flag in "${ENABLE_FLAGS[@]}"; do
@@ -150,13 +155,13 @@ verify_flags() {
     local value="${stripped#*=}"      # e.g. matroska, vp8
 
     if [[ "${value}" == "${feature}" ]]; then
-      # Bare flag e.g. --enable-videotoolbox
-      if ! "${SRC_DIR}/configure" --help 2>&1 | grep -qF -- "--enable-${feature}"; then
+      # Bare flag e.g. --enable-videotoolbox, --enable-audiotoolbox
+      if ! (cd "${SRC_DIR}" && ./configure --help 2>&1) | grep -qF -- "--enable-${feature}"; then
         missing+=("--enable-${feature}  (not found in configure --help)")
       fi
     else
       # Component flag e.g. --enable-decoder=vp8
-      if ! "${SRC_DIR}/configure" "--list-${feature}s" 2>/dev/null | grep -qx "${value}"; then
+      if ! (cd "${SRC_DIR}" && ./configure "--list-${feature}s" 2>/dev/null) | grep -qx "${value}"; then
         missing+=("--enable-${feature}=${value}  (${value} not in --list-${feature}s)")
       fi
     fi
