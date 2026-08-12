@@ -10,6 +10,8 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 120
+    permissions:
+      contents: write  # Required to create releases
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,13 +25,8 @@ jobs:
           clang --version
           git --version
 
-      - name: Mark scripts executable
-        run: chmod +x build-ffmpeg-4chan.sh run-local.sh
-
       - name: Build FFmpeg (4chan transcode subset)
         run: ./build-ffmpeg-4chan.sh
-        # No continue-on-error — failed verify_flags() or compile = no release published.
-        # A broken or unstripped build must never reach SPM consumers.
 
       - name: Sanity check output size
         run: |
