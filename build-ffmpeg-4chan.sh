@@ -300,8 +300,6 @@ assemble_framework() {
 
   rm -rf "${fw_path}"
   mkdir -p "${fw_path}/Headers"
-  # fw_path is e.g. .build/intermediates/device/FFmpeg4chan.framework
-  # The parent dir (.build/intermediates/device/) must exist first.
   mkdir -p "$(dirname "${fw_path}")"
 
   local all_archives=()
@@ -309,13 +307,21 @@ assemble_framework() {
     all_archives+=("${f}")
   done < <(find "${prefix}/lib" -name "*.a" -print0)
 
-  # libtool merges static archives. -warnings-as-errors is NOT set so the
-  # duplicate version.o/utils.o warnings from FFmpeg sub-libraries are printed
-  # but do not fail the build. These duplicates are harmless — the linker
-  # resolves them at app link time using the first occurrence.
-  libtool -static -warnings_as_errors -o "${fw_path}/${fw_name}" "${all_archives[@]}" 2>&1 | grep -v "duplicate member name" || true
+  # Merge all static archives into one.
+  # Apple's libtool does not support -warnings_as_errors; that is a GNU libtool flag.
+  # We suppress the harmless "duplicate member name" warnings but capture libtool's
+  # actual exit code to detect failure.
+  set +e
+  libtool -static -o "${fw_path}/${fw_name}" "${all_archives[@]}" 2>&1 | grep -v "duplicate member name"
+  libtool_exit=$?
+  set -e
+
+  if [ $libtool_exit -ne 0 ]; then
+    fail "libtool failed to produce ${fw_path}/${fw_name}"
+  fi
+
   # Verify the output binary was actually created
-  [[ -f "${fw_path}/${fw_name}" ]] || fail "libtool failed to produce ${fw_path}/${fw_name}"
+  [[ -f "${fw_path}/${fw_name}" ]] || fail "libtool did not create ${fw_path}/${fw_name}"
 
   cp -R "${prefix}/include/"* "${fw_path}/Headers/"
 
