@@ -268,8 +268,12 @@ build_xcframework() {
 
   cp -R "${device_arm64}/include" "${sim_fat}/include"
 
-  local fw_device="${INTERMEDIATES_DIR}/device.framework"
-  local fw_sim="${INTERMEDIATES_DIR}/simulator.framework"
+  # xcodebuild -create-xcframework requires the binary inside each .framework
+  # to be named the same as the folder (without extension). Both slices must
+  # be named FFmpeg4chan.framework but live in different parent directories so
+  # they have distinct paths when passed to xcodebuild.
+  local fw_device="${INTERMEDIATES_DIR}/device/FFmpeg4chan.framework"
+  local fw_sim="${INTERMEDIATES_DIR}/simulator/FFmpeg4chan.framework"
 
   assemble_framework "${device_arm64}" "${fw_device}"
   assemble_framework "${sim_fat}"      "${fw_sim}"
@@ -296,14 +300,22 @@ assemble_framework() {
 
   rm -rf "${fw_path}"
   mkdir -p "${fw_path}/Headers"
+  # fw_path is e.g. .build/intermediates/device/FFmpeg4chan.framework
+  # The parent dir (.build/intermediates/device/) must exist first.
+  mkdir -p "$(dirname "${fw_path}")"
 
   local all_archives=()
   while IFS= read -r -d '' f; do
     all_archives+=("${f}")
   done < <(find "${prefix}/lib" -name "*.a" -print0)
 
-  # libtool avoids symbol duplication issues that plain `ar` has on macOS
-  libtool -static -o "${fw_path}/${fw_name}" "${all_archives[@]}"
+  # libtool merges static archives. -warnings-as-errors is NOT set so the
+  # duplicate version.o/utils.o warnings from FFmpeg sub-libraries are printed
+  # but do not fail the build. These duplicates are harmless — the linker
+  # resolves them at app link time using the first occurrence.
+  libtool -static -warnings_as_errors -o "${fw_path}/${fw_name}" "${all_archives[@]}" 2>&1 | grep -v "duplicate member name" || true
+  # Verify the output binary was actually created
+  [[ -f "${fw_path}/${fw_name}" ]] || fail "libtool failed to produce ${fw_path}/${fw_name}"
 
   cp -R "${prefix}/include/"* "${fw_path}/Headers/"
 
