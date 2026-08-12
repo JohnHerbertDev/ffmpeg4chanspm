@@ -1,0 +1,83 @@
+name: Build FFmpeg (4chan transcode)
+
+on:
+  schedule:
+    # Weekly, Tuesday 06:00 UTC
+    - cron: '0 6 * * 2'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+
+      - name: Show tool versions
+        run: |
+          xcodebuild -version
+          clang --version
+          git --version
+
+      - name: Build FFmpeg (4chan transcode subset)
+        run: ./build-ffmpeg-4chan.sh
+        # No continue-on-error — failed verify_flags() or compile = no release published.
+        # A broken or unstripped build must never reach SPM consumers.
+
+      - name: Sanity check output size
+        run: |
+          echo "=== xcframework size ==="
+          du -sh output/FFmpeg4chan.xcframework
+          echo "=== zip size (expect ~3-6 MB) ==="
+          du -sh output/FFmpeg4chan.xcframework.zip
+
+      - name: Derive version tag
+        id: ver
+        run: |
+          FFMPEG_SHA=$(git -C .build/ffmpeg rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          TAG="v$(date +%Y.%m.%d)-${GITHUB_RUN_NUMBER}-ffmpeg-${FFMPEG_SHA}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: FFmpeg4chan ${{ steps.ver.outputs.tag }}
+          body: |
+            Minimal FFmpeg XCFramework for 4chan download-and-convert pipeline.
+
+            **Converts (on-device, hardware-accelerated):**
+            - WebM (VP8/VP9 + Vorbis/Opus) → MP4 (H.264 + AAC)
+            - OGG (Vorbis) → M4A (AAC)
+
+            **Encoders:** `h264_videotoolbox` + `aac_at` (Apple hardware — no libx264/libfdk_aac bundled)
+
+            **Not included** (URLSession + AVFoundation handle these natively):
+            MP4, MP3, FLAC, GIF, JPG, PNG, WEBP
+
+            **Targets:** iOS device (arm64) · iOS Simulator (arm64 + x86_64)
+
+            > ⚠️ Hardware encoders are unavailable on Intel (x86_64) simulator slice.
+            > Use a real device or Apple Silicon Mac simulator for transcode testing.
+
+            SPM checksum: see `FFmpeg4chan.xcframework.zip.sha256` asset.
+          files: |
+            output/FFmpeg4chan.xcframework.zip
+            output/FFmpeg4chan.xcframework.zip.sha256
+          fail_on_unmatched_files: true
+
+      - name: Print Package.swift snippet
+        run: |
+          CHECKSUM=$(cat output/FFmpeg4chan.xcframework.zip.sha256)
+          TAG=${{ steps.ver.outputs.tag }}
+          echo ""
+          echo "=== Paste into Package.swift ==="
+          echo ".binaryTarget("
+          echo "    name: \"FFmpeg4chan\","
+          echo "    url: \"https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/FFmpeg4chan.xcframework.zip\","
+          echo "    checksum: \"${CHECKSUM}\""
+          echo ")"
