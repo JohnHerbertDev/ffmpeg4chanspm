@@ -23,6 +23,9 @@ jobs:
           clang --version
           git --version
 
+      - name: Mark scripts executable
+        run: chmod +x build-ffmpeg-4chan.sh run-local.sh
+
       - name: Build FFmpeg (4chan transcode subset)
         run: ./build-ffmpeg-4chan.sh
         # No continue-on-error — failed verify_flags() or compile = no release published.
